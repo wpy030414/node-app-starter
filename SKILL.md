@@ -1,523 +1,62 @@
 ---
-name: node-mono-starter
-description: 从零搭建 pnpm monorepo Node.js 全栈项目脚手架（Hono + React + Vite + shadcn/ui + Tailwind + SQLite，SSE 实时推送模式）。当用户要求创建/初始化 Node 仓库、搭建 monorepo 全栈项目、或需要一套带前后端的自托管应用骨架时使用。
+name: node-app-starter
+description: 从零搭建 Node.js Web 应用脚手架，内含两条路线——node-monorepo（pnpm workspace 全栈：Hono + React + SQLite/SSE，自托管）与 node-page（纯前端 SPA：React + Tailwind + shadcn/ui，GitHub Pages + Actions 部署）。构建与检查统一使用 vp（Vite+），不在 package.json 指定包管理器；默认前端方案可按需替换。当用户要求创建/初始化 Node 项目、搭建 monorepo 全栈骨架，或新建纯前端静态站点并部署到 GitHub Pages 时使用。
 ---
 
 ## 概览
 
-生成一个可立即开发的全栈 monorepo 骨架：
-
-```
-<project>/
-├── package.json                     # root：pnpm workspace scripts（dev/build/test）
-├── pnpm-workspace.yaml              # packages: ['apps/*', 'packages/*']
-├── tsconfig.base.json               # 共享 TS 编译基准
-├── tsconfig.json                    # 根引用（files: []）
-├── .gitignore
-├── .env.example
-├── README.md
-├── AGENTS.md
-├── apps/
-│   ├── server/
-│   │   ├── package.json             # @<name>/server
-│   │   ├── tsconfig.json
-│   │   ├── tsup.config.ts           # ESM 构建，内联 shared
-│   │   └── src/
-│   │       └── index.ts             # Hono 入口（API + 托管 client/ 静态文件）
-│   └── web/
-│       ├── package.json             # @<name>/web
-│       ├── tsconfig.json
-│       ├── vite.config.ts           # 代理 /api → server，outDir → ../server/dist/client/
-│       ├── index.html
-│       ├── postcss.config.js
-│       ├── tailwind.config.js
-│       └── src/
-│           ├── main.tsx             # React 入口
-│           ├── App.tsx
-│           ├── components/ui/       # shadcn/ui 基础组件
-│           ├── hooks/
-│           ├── lib/
-│           └── styles/globals.css   # Tailwind + shadcn/ui CSS 变量
-├── packages/
-│   └── shared/
-│       ├── package.json             # @<name>/shared（exports → ./src/*.ts，零构建）
-│       ├── tsconfig.json
-│       └── src/
-│           ├── types.ts
-│           └── constants.ts
-└── docs/
-    ├── PRD.md
-    ├── ARCHITECTURE.md
-    ├── DECISIONS.md
-    └── specs/
-```
-
-## 架构决策（技能内置约定）
-
-| # | 决策 | 理由 |
-|---|------|------|
-| A1 | pnpm workspace，无外部编排工具 | 原生 `workspace:*` 协议足够，零额外依赖 |
-| A2 | `@scope/shared` 用 TS 源码直引（`exports` → `./src/*.ts`） | 绕过 shared 包构建，tsup 内联进 server bundle |
-| A3 | tsup 构建 server（ESM），`noExternal: ['@scope/shared']` | 产物自包含，部署只需 `node dist/index.js` |
-| A4 | Vite 前端 outDir → `apps/server/dist/client/` | 单服务进程托管一切；生产模式 Hono 直出静态文件 |
-| A5 | 开发模式 Vite proxy `/api` → Hono | 前后端独立热重载，无需 CORS |
-| A6 | root `package.json` 用 `concurrently` + `wait-on` 编排并行启动 | 一键 `pnpm dev` 同时拉起前后端 |
-| A7 | shadcn/ui 模式：Radix + Tailwind + CVA + CSS 变量 | 可访问、可主题化、组件所有权在项目内 |
-| A8 | SSE 作为实时推送方案 | 标准 HTTP 协议，天然兼容代理/负载均衡，客户端自动重连 |
-| A9 | SQLite（node:sqlite）+ Drizzle ORM 为默认数据库 | 零配置，单文件易备份；可选 PostgreSQL |
-| A10 | Hono 4 为后端框架 | 轻量、TypeScript-first、标准 Web API，兼容任何 Node/http 部署 |
-
-## 使用时机（触发条件）
-
-- 用户说「创建 Node 项目 / 新建 monorepo / 搭全栈骨架 / 初始化仓库」且提到前后端一体。
-- 用户想启动一个自托管的 Web 应用项目（API + SPA）。
-- 用户需要一个验证了技术可行性的脚手骨架，不想从头试错。
-
-## 执行步骤
-
-### Phase 1：收集参数
-
-向用户确认以下信息（已有明确答案则跳过）：
-
-1. **项目名称**（小写短横线，如 `my-app`）→ 推导出 scope `@my-app`
-2. **项目描述**（一句话）
-3. **服务端口**（默认 `11408`）
-4. **是否需要 Docker / CI 配置**（默认勾选 `.xat/workflows/ci-cd.yml` 的 pm2 部署模板）
-
-### Phase 2：生成文件
-
-按下方模板逐文件生成。占位符 `<NAME>` = 项目名（短横线），`<SCOPE>` = `@<NAME>`，`<PORT>` = 端口号。
-
-#### 根目录文件
-
-**package.json**
-```json
-{
-  "name": "<NAME>",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "concurrently -k -n server,web \"pnpm --filter <SCOPE>/server dev\" \"wait-on tcp:<PORT> && pnpm --filter <SCOPE>/web dev\"",
-    "build": "pnpm --filter <SCOPE>/server build && pnpm --filter <SCOPE>/web build",
-    "start": "pnpm --filter <SCOPE>/server start",
-    "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck"
-  },
-  "devDependencies": {
-    "concurrently": "^9.2.4",
-    "typescript": "^5.9.3",
-    "wait-on": "^9.1.0"
-  }
-}
-```
-
-**pnpm-workspace.yaml**
-```yaml
-packages:
-  - 'apps/*'
-  - 'packages/*'
-```
-
-**tsconfig.base.json**
-```json
-{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true
-  }
-}
-```
-
-**tsconfig.json**（根）
-```json
-{ "extends": "./tsconfig.base.json", "files": [] }
-```
-
-**.gitignore**
-```
-# 依赖
-node_modules/
-
-# 构建产物
-dist/
-
-# 日志
-*.log
-
-# 缓存
-.cache/
-
-# 系统文件
-.DS_Store
-Thumbs.db
-
-# 环境变量
-.env
-.env.local
-
-# IDE
-.vscode/
-.idea/
-```
-
-**.env.example**
-```
-# ===== 服务端口 =====
-PORT=<PORT>
-```
-
-#### apps/server/
-
-**apps/server/package.json**
-```json
-{
-  "name": "<SCOPE>/server",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "cross-env NODE_ENV=development tsx watch src/index.ts",
-    "build": "tsup",
-    "start": "cross-env NODE_ENV=production node dist/index.js",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@hono/node-server": "^1.19.17",
-    "<SCOPE>/shared": "workspace:*",
-    "dotenv": "^16.6.1",
-    "drizzle-orm": "1.0.0-rc.4",
-    "hono": "^4.13.7"
-  },
-  "devDependencies": {
-    "@types/node": "^22.17.0",
-    "cross-env": "^10.1.0",
-    "drizzle-kit": "1.0.0-rc.4",
-    "tsup": "^8.5.1",
-    "tsx": "^4.23.13",
-    "typescript": "^5.9.3",
-    "vitest": "^5.0.2"
-  }
-}
-```
-
-**apps/server/tsconfig.json**
-```json
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "types": ["node"] },
-  "include": ["src"],
-  "exclude": ["node_modules", "dist"]
-}
-```
-
-**apps/server/tsup.config.ts**
-```ts
-import { defineConfig } from 'tsup'
-
-export default defineConfig({
-  entry: ['src/index.ts'],
-  format: ['esm'],
-  clean: true,
-  outDir: 'dist',
-  // 内联 @scope/shared，使 dist/ 自包含
-  noExternal: ['<SCOPE>/shared'],
-})
-```
-
-**apps/server/src/index.ts** — 最小 Hono 启动器：
-```ts
-import { serve } from '@hono/node-server'
-import { Hono } from 'hono'
-import { readFileSync, existsSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { config } from 'dotenv'
-import { resolve } from 'node:path'
-
-// 从仓库根加载 .env（开发模式 cwd=repo root；生产模式向上找到 pnpm-workspace.yaml）
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const repoRoot = resolve(__dirname, '..', '..')
-config({ path: join(repoRoot, '.env') })
-
-const PORT = parseInt(process.env.PORT || '<PORT>', 10)
-
-const app = new Hono()
-
-// API 路由
-app.get('/api/health', (c) => c.json({ status: 'ok' }))
-
-// --- 生产模式：托管前端静态文件 ---
-// dist/ 目录结构预期：dist/index.js + dist/client/（Vite 构建产物）
-const clientDir = join(__dirname, 'client')
-if (existsSync(clientDir)) {
-  // 静态资源
-  app.get('/assets/*', async (c) => {
-    const filePath = join(clientDir, c.req.path)
-    if (!existsSync(filePath)) return c.notFound()
-    const ext = filePath.split('.').pop() || ''
-    const mime: Record<string, string> = {
-      js: 'application/javascript', mjs: 'application/javascript',
-      css: 'text/css', html: 'text/html', svg: 'image/svg+xml',
-      png: 'image/png', ico: 'image/x-icon', json: 'application/json',
-      woff2: 'font/woff2', woff: 'font/woff',
-    }
-    return c.body(readFileSync(filePath), 200, { 'Content-Type': mime[ext] || 'application/octet-stream' })
-  })
-
-  // SPA fallback：所有非 /api 路径返回 index.html
-  app.get('*', (c) => {
-    if (c.req.path.startsWith('/api')) return c.notFound()
-    const html = readFileSync(join(clientDir, 'index.html'), 'utf-8')
-    return c.html(html)
-  })
-}
-
-console.log(`Server starting on port ${PORT}...`)
-serve({ fetch: app.fetch, port: PORT })
-```
-
-#### apps/web/
-
-**apps/web/package.json**
-```json
-{
-  "name": "<SCOPE>/web",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "<SCOPE>/shared": "workspace:*",
-    "@radix-ui/react-dialog": "^1.1.23",
-    "@radix-ui/react-dropdown-menu": "^2.1.24",
-    "@radix-ui/react-scroll-area": "^1.2.18",
-    "@radix-ui/react-select": "^2.3.7",
-    "@radix-ui/react-slot": "^1.3.3",
-    "@radix-ui/react-tabs": "^1.1.21",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "lucide-react": "^0.475.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "tailwind-merge": "^3.6.0"
-  },
-  "devDependencies": {
-    "@tailwindcss/typography": "^0.5.20",
-    "@types/node": "^22.17.0",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.7",
-    "@vitejs/plugin-react": "^6.1.1",
-    "autoprefixer": "^10.5.5",
-    "dotenv": "^17.4.2",
-    "eslint": "^10.11.0",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "postcss": "^8.5.28",
-    "tailwindcss": "^3.4.19",
-    "typescript": "^5.9.3",
-    "vite": "^8.2.2"
-  }
-}
-```
-
-**apps/web/tsconfig.json**
-```json
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client", "node"],
-    "baseUrl": ".",
-    "paths": { "@/*": ["./src/*"] }
-  },
-  "include": ["src", "vite.config.ts"]
-}
-```
-
-**apps/web/vite.config.ts**
-```ts
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import path from 'path'
-import dotenv from 'dotenv'
-
-// 从 repo 根读 .env（向上两级）
-dotenv.config({ path: path.resolve(import.meta.dirname, '../../.env') })
-const apiPort = process.env.PORT || '<PORT>'
-
-export default defineConfig({
-  plugins: [react()],
-  build: {
-    outDir: '../server/dist/client',
-    emptyOutDir: true,
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(import.meta.dirname, 'src'),
-    },
-  },
-  server: {
-    host: '0.0.0.0',
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: `http://localhost:${apiPort}`,
-        changeOrigin: true,
-      },
-    },
-  },
-})
-```
-
-**apps/web/postcss.config.js**
-```js
-export default {
-  plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
-  },
-}
-```
-
-**apps/web/tailwind.config.js**（shadcn/ui 标准配置）
-
-使用标准 shadcn/ui Tailwind 配置，含 `darkMode: 'class'`、CSS 变量驱动的语义色板、`--radius` 圆角变量，以及 `@tailwindcss/typography` 插件。
-
-**apps/web/index.html**
-```html
-<!DOCTYPE html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title><NAME></title>
-    <link rel="icon" href="/favicon.svg" />
-  </head>
-  <body class="min-h-screen bg-background text-foreground antialiased">
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
-```
-
-**apps/web/src/main.tsx**
-```tsx
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import { App } from './App'
-import './styles/globals.css'
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-)
-```
-
-**apps/web/src/App.tsx** — 最小占位：
-```tsx
-export function App() {
-  return (
-    <div className="flex min-h-screen items-center justify-center">
-      <h1 className="text-2xl font-bold"><NAME> — Ready</h1>
-    </div>
-  )
-}
-```
-
-**apps/web/src/styles/globals.css** — shadcn/ui 标准 CSS 变量（`@layer base` 含主题变量 + `@tailwind base/components/utilities`）。内容参照 shadcn/ui 官方 starter。
-
-**apps/web/src/lib/utils.ts** — `cn()` 工具函数（`clsx` + `tailwind-merge`）。
-
-#### packages/shared/
-
-**packages/shared/package.json**
-```json
-{
-  "name": "<SCOPE>/shared",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "exports": {
-    "./types": "./src/types.ts",
-    "./constants": "./src/constants.ts"
-  },
-  "scripts": {
-    "typecheck": "tsc --noEmit"
-  },
-  "devDependencies": {
-    "typescript": "^5.9.3"
-  }
-}
-```
-
-**packages/shared/tsconfig.json**
-```json
-{ "extends": "../../tsconfig.base.json", "include": ["src"] }
-```
-
-**packages/shared/src/types.ts** — 项目基础类型占位。
-
-**packages/shared/src/constants.ts** — 项目常量占位。
-
-#### 文档骨架
-
-使用 `scaffold-docs` 技能生成标准五件套（README / AGENTS / PRD / ARCHITECTURE / DECISIONS），内容基于本技能中已陈述的架构决策填充，而非空模板。specs/ 目录创建 `.gitkeep` 等待具体模块。
-
-#### 可选：CI/CD 配置
-
-若用户需要，创建 `.xat/workflows/ci-cd.yml`（pm2 部署模板）：
-```yaml
-steps:
-  - name: Build
-    run: |
-      avail_kb=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
-      if [ "${avail_kb:-0}" -lt 4194304 ]; then
-        export NODE_OPTIONS='--max-old-space-size=1024'
-      fi
-      pnpm build
-  - name: Run
-    run: |
-      if pm2 jlist 2>/dev/null | grep -q '"name":"<NAME>"'; then
-        pm2 delete <NAME>
-      fi
-      pm2 start 'pnpm start' --name <NAME>
-```
-
-### Phase 3：安装依赖
-
-文件生成完毕后，执行：
-
-```bash
-pnpm install
-```
-
-### Phase 4：验收
-
-- [ ] `pnpm typecheck` 零错误
-- [ ] `pnpm dev` 同时启动 Vite (:5173) 和 Hono (:<PORT>)，`/api/health` 返回 `{"status":"ok"}`
-- [ ] `pnpm build` 成功，`apps/server/dist/` 包含 `index.js` + `client/`
-- [ ] `pnpm start` 生产模式直接访问 http://localhost:<PORT> 能看到前端页面
+本技能是一块**引路牌**，自身不生成代码。先判定路线，再读取对应的 reference，严格按其中的模板与验收清单执行。
+
+| 路线 | Reference | 形态 | 部署 |
+|------|-----------|------|------|
+| **node-monorepo** | `references/monorepo.md` | pnpm workspace：Hono API + React SPA + shared 包 + SQLite + SSE | 自托管（`vp pack` → `node dist/index.js` / pm2） |
+| **node-page** | `references/page.md` | 单包纯前端 SPA，无服务端、无数据库 | GitHub Pages + GitHub Actions（`base` 由 CI 注入） |
+
+## 选路
+
+按下表判定，命中即执行；**一次只生成一条路线**。
+
+| 用户信号 | 路线 |
+|----------|------|
+| 需要后端 API / 数据库 / 鉴权 / 定时任务 / 文件上传 / SSE | node-monorepo |
+| 需要一个进程同时托管前后端，部署到自己的服务器 | node-monorepo |
+| 明确提到 monorepo / workspace / 多包 / 前后端分离 | node-monorepo |
+| 纯静态展示、工具站、个人主页、纯本地数据（localStorage / 静态 JSON） | node-page |
+| 明确提到 GitHub Pages / 免费托管 / 无服务器 / 纯前端 | node-page |
+
+判据倾斜：**默认选 node-page**。只有当用户确实需要服务端能力时才升级到 node-monorepo——不要在需求里塞进「以后可能要用后端」的假设。
+
+判定仍不清楚时，只问一个二选一问题：「这个项目需要后端和数据库吗？」需要 → monorepo；不需要 → page。不要罗列两条路线的区别让用户做题。
+
+## 通用流程（两条路线一致）
+
+1. **收集参数**：路线专属参数见各 reference 的 Phase 1。
+2. **检查目录**：确认目标目录现状。已存在的文件一律不覆盖，只补齐缺失项。
+3. **生成文件**：按 reference 中的模板逐文件写入，占位符全部替换。
+4. **安装依赖**：先安装 vp（`curl -fsSL https://vite.plus | bash`），再执行 `vp install`。vp 依据 lockfile 自动检测并代理包管理器；下载走中国境内镜像（`registry.npmmirror.com`）。
+5. **生成文档骨架**：调用 `scaffold-docs` 技能生成五件套（README / AGENTS / PRD / ARCHITECTURE / DECISIONS）。内容用本路线已确定的真实决策填充，不留空模板。
+6. **验收**：逐条跑通 reference 末尾的验收清单，失败即修复，不以「应该能跑」结案。
+
+## 共同基线
+
+| 项 | 约定 |
+|----|------|
+| 包管理器 | **不在 `package.json` 写 `packageManager` 字段**；由 vp 依据 lockfile 自动检测并代理 |
+| 构建 / 检查 | 统一走 **vp（Vite+）**：`vp dev` / `vp build` / `vp pack` / `vp check` / `vp test`（Node 服务进程的开发启动仍用 `tsx watch`） |
+| 语言 | TypeScript，`strict: true`（monorepo 与纯前端同样适用） |
+| Node | ≥ 22；CI 用 24 |
+| 前端 | **默认** React 19 + Tailwind 3.4 + shadcn/ui（Radix + CVA + CSS 变量），非强制；用户指定其它栈时按 page.md 的替换表处理 |
+| 版本 | 以 reference 中钉住的版本为准；升级前先验证，不要凭记忆改版本号 |
+| 命名 | 项目名小写短横线；monorepo 由其推导 scope `@<name>` |
 
 ## 边界
 
-- **不涉及** 具体业务逻辑（认证、聊天、工具系统等）。这是纯净骨架，业务代码由后续迭代添加。
-- **不涉及** 数据库 schema 设计（仅有 Drizzle ORM 依赖声明，无 ddl/schema 文件）。
-- **不替代** 产品/技术决策。本技能内建决策是已验证的可靠默认值；若项目有不同约束，以项目约束为准。
-- 若目标目录已有内容，不得覆盖；改为叠加缺失文件。
+- **不涉及** 具体业务逻辑（认证、聊天、支付、工具系统等）。产出是可立即开发的最小骨架。
+- **不替代** 产品与技术决策。本技能内建的是已验证的默认值；项目有特殊约束时以项目约束为准。
+- **不混搭** 两条路线。需要前端页面托管在全栈项目里，走 monorepo 的 `apps/web`，不要额外叠一个 page 项目。
+- node-page 只覆盖客户端渲染的 SPA；需要 SEO / 预渲染的站点（博客、文档站）不在本技能范围内，应直接向用户说明并建议静态生成器方案。
+
+## 文件导航
+
+- `references/monorepo.md` — pnpm 全栈 monorepo 完整模板（Hono + React + SQLite + SSE）。
+- `references/page.md` — 纯前端 SPA + GitHub Pages（Actions）完整模板。
