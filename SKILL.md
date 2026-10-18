@@ -44,7 +44,7 @@ description: 从零搭建 Node.js Web 应用脚手架，内含两条路线——
 | 包管理器 | **不在 `package.json` 写 `packageManager` 字段**；由 vp 依据 lockfile 自动检测并代理 |
 | 构建 / 检查 | 统一走 **vp（Vite+）**：`vp dev` / `vp build` / `vp pack` / `vp check` / `vp test`（Node 服务进程的开发启动仍用 `tsx watch`） |
 | 语言 | TypeScript，`strict: true`（monorepo 与纯前端同样适用） |
-| Node | ≥ 22；CI 用 24 |
+| Node | 24（LTS），版本钉在根目录 `.nvmrc`；node-page 的 CI 直接读取该文件 |
 | 前端 | **默认** React 19 + Tailwind 3.4 + shadcn/ui（Radix + CVA + CSS 变量），非强制；用户指定其它栈时按 page.md 的替换表处理 |
 | 版本 | 以 reference 中钉住的版本为准；升级前先验证，不要凭记忆改版本号 |
 | 命名 | 项目名小写短横线；monorepo 由其推导 scope `@<name>` |

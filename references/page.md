@@ -111,7 +111,7 @@
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.20",
-    "@types/node": "^22.17.0",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
@@ -263,8 +263,9 @@ Thumbs.db
 
 **.nvmrc**
 ```
-22
+24
 ```
+本地 `nvm use` / `fnm use` 会读取它切换版本；CI 由 `setup-vp` 的 `node-version-file: .nvmrc` 读取。Node 版本只维护这一处。
 
 **public/favicon.svg** — 极简占位 SVG（`viewBox="0 0 32 32"`，一个圆角方块 + 首字母或简单图形）。
 
@@ -323,7 +324,7 @@ Pages 对未知路径返回 `404.html`，SPA 启动后接管路由。注意这�
 
 ### .github/workflows/deploy.yml
 
-`public/.nojekyll` 会被 Vite 原样拷进 `dist/`；工作流里再 `touch` 一次是兜底。`setup-vp` 必须写**精确版本**（不要用已冻结的 `v1` 标签），版本号从 setup-vp 的 releases 页面取。
+`public/.nojekyll` 会被 Vite 原样拷进 `dist/`；工作流里再 `touch` 一次是兜底。`upload-pages-artifact` 从 v4 起默认排除点文件，必须显式写 `include-hidden-files: true`，否则 `.nojekyll` 会被丢弃。`setup-vp` 必须写**精确版本**（不要用已冻结的 `v1` 标签），版本号从 setup-vp 的 releases 页面取。Node 版本不要写死在 `with:` 里，统一从 `.nvmrc` 读取。
 
 ```yaml
 name: Deploy to GitHub Pages
@@ -346,13 +347,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # setup-vp 一并处理 Node、包管理器和依赖安装；
-      # 不要再写 setup-node / pnpm-action-setup / pnpm install
+      # Node 版本读 .nvmrc（与本地 nvm/fnm 同一份），不要再写 setup-node / pnpm install
       - uses: voidzero-dev/setup-vp@v1.21.2
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
           cache: true
 
       - name: Check
@@ -369,13 +370,15 @@ jobs:
       - name: Disable Jekyll
         run: touch dist/.nojekyll
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
         with:
           enablement: true
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
+          # v4+ 默认排除点文件；不加这行 .nojekyll 进不了 artifact
+          include-hidden-files: true
 
   deploy:
     needs: build
@@ -385,7 +388,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 ```
 
 ## Phase 3：安装依赖

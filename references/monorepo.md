@@ -16,6 +16,7 @@
 ├── tsconfig.base.json               # 共享 TS 编译基准
 ├── tsconfig.json                    # 根引用（files: []）
 ├── .gitignore
+├── .nvmrc                           # Node 24（本地版本管理器读取）
 ├── .env.example
 ├── README.md
 ├── AGENTS.md
@@ -195,6 +196,12 @@ Thumbs.db
 .idea/
 ```
 
+**.nvmrc**
+```
+24
+```
+本地 `nvm use` / `fnm use` 会读取它切换版本。`.nvmrc` 只是版本提示，不参与依赖解析；部署服务器需自行保证 Node 24。
+
 **.env.example**
 ```
 # ===== 服务端口 =====
@@ -225,7 +232,7 @@ PORT=<PORT>
     "hono": "^4.13.7"
   },
   "devDependencies": {
-    "@types/node": "^22.17.0",
+    "@types/node": "^24.19.2",
     "cross-env": "^10.1.0",
     "drizzle-kit": "1.0.0-rc.4",
     "tsx": "^4.23.13",
@@ -355,7 +362,7 @@ serve({ fetch: app.fetch, port: PORT })
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.20",
-    "@types/node": "^22.17.0",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
